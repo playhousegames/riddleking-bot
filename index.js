@@ -46,55 +46,99 @@ function markAsPosted(riddleId) {
   }
 }
 
-// Fetch a random unposted riddle from WordPress
+// Parse RSS XML to get riddles
+function parseRSSFeed(xmlText) {
+  const riddles = [];
+  const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+  const titleRegex = /<title><!\[CDATA\[(.*?)\]\]><\/title>/;
+  const linkRegex = /<link>(.*?)<\/link>/;
+  const guidRegex = /<guid.*?>(.*?)<\/guid>/;
+  
+  let match;
+  while ((match = itemRegex.exec(xmlText)) !== null) {
+    const itemXml = match[1];
+    const titleMatch = titleRegex.exec(itemXml);
+    const linkMatch = linkRegex.exec(itemXml);
+    const guidMatch = guidRegex.exec(itemXml);
+    
+    if (titleMatch && linkMatch) {
+      // Extract slug from URL
+      const url = linkMatch[1];
+      const slug = url.split('/').filter(p => p).pop();
+      
+      // Use URL as ID (more stable than guid)
+      const id = url;
+      
+      riddles.push({
+        id: id,
+        question: titleMatch[1]
+          .replace(/&#8217;/g, "'")
+          .replace(/&#8220;/g, '"')
+          .replace(/&#8221;/g, '"')
+          .replace(/&#8211;/g, '–')
+          .replace(/&#8230;/g, '...')
+          .replace(/&amp;/g, '&')
+          .replace(/&#038;/g, '&'),
+        slug: slug
+      });
+    }
+  }
+  
+  return riddles;
+}
+
+// Fetch a random unposted riddle from WordPress RSS
 async function getRandomUnpostedRiddle() {
   const posted = getPostedRiddles();
   let attempts = 0;
-  const maxAttempts = 10;
+  const maxAttempts = 3;
 
   while (attempts < maxAttempts) {
     try {
-      // Fetch random posts from WordPress REST API
-      const response = await fetch(
-        'https://riddleking.co.uk/wp-json/wp/v2/posts?per_page=5&orderby=rand&_fields=id,title,slug'
-      );
+      // Fetch RSS feed
+      const response = await fetch('https://riddleking.co.uk/feed/');
       
       if (!response.ok) {
-        throw new Error(`WordPress API returned ${response.status}`);
+        throw new Error(`RSS feed returned ${response.status}`);
       }
 
-      const posts = await response.json();
+      const xmlText = await response.text();
+      const riddles = parseRSSFeed(xmlText);
+      
+      if (riddles.length === 0) {
+        throw new Error('No riddles found in RSS feed');
+      }
+      
+      console.log(`Found ${riddles.length} riddles in feed`);
+      
+      // Shuffle riddles for randomness
+      const shuffled = riddles.sort(() => Math.random() - 0.5);
       
       // Find first unposted riddle
-      for (const post of posts) {
-        if (!posted.includes(post.id)) {
-          return {
-            id: post.id,
-            question: post.title.rendered
-              .replace(/&#8217;/g, "'")
-              .replace(/&#8220;/g, '"')
-              .replace(/&#8221;/g, '"')
-              .replace(/&#8211;/g, '–')
-              .replace(/&#8230;/g, '...')
-              .replace(/&amp;/g, '&'),
-            slug: post.slug
-          };
+      for (const riddle of shuffled) {
+        if (!posted.includes(riddle.id)) {
+          return riddle;
         }
       }
+      
+      // If all riddles in feed have been posted, just use the first one
+      console.log('All riddles in feed posted, using random one');
+      return shuffled[0];
 
-      attempts++;
     } catch (error) {
-      console.error(`Attempt ${attempts} failed:`, error);
+      console.error(`Attempt ${attempts + 1} failed:`, error.message);
       attempts++;
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retry
+      if (attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
     }
   }
 
   // If all riddles have been posted, reset the list
-  if (posted.length > 0) {
-    console.log('All riddles posted! Resetting list...');
+  if (posted.length > 10) {
+    console.log('Posted list is large, resetting...');
     fs.writeFileSync(POSTED_FILE, JSON.stringify([]));
-    return getRandomUnpostedRiddle(); // Try again with empty list
+    return getRandomUnpostedRiddle();
   }
 
   throw new Error('Could not fetch riddle after multiple attempts');
