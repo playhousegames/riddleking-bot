@@ -1,0 +1,20 @@
+{
+  "name": "riddleking-bot",
+  "version": "1.0.0",
+  "description": "Automated X/Twitter bot for Riddle King daily riddles",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node index.js --test"
+  },
+  "keywords": ["twitter", "bot", "riddles"],
+  "author": "Matthew",
+  "license": "MIT",
+  "dependencies": {
+    "twitter-api-v2": "^1.17.2",
+    "node-cron": "^3.0.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
